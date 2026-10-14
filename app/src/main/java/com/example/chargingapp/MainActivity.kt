@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,10 +19,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -81,14 +87,13 @@ fun AppScreen(db: DatabaseHelper) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var statType by remember { mutableStateOf("月") }
 
-    // ---- WebDAV 配置：从 SharedPreferences 读回 ----
+    // ---- WebDAV 配置 ----
     val saved = remember { WebDavPrefs.load(context) }
     var webdavUrl by remember { mutableStateOf(saved.first) }
     var webdavUser by remember { mutableStateOf(saved.second) }
     var webdavPass by remember { mutableStateOf(saved.third) }
     var statusMsg by remember { mutableStateOf("") }
 
-    // App 启动时自动把已保存的配置注入 WebDavHelper
     LaunchedEffect(Unit) {
         if (webdavUrl.isNotBlank()) {
             WebDavHelper.configure(webdavUrl, webdavUser, webdavPass)
@@ -124,9 +129,12 @@ fun AppScreen(db: DatabaseHelper) {
     fun refresh() {
         records = db.getAll()
         stats = db.getStats(statType)
+        // 通知小部件刷新
+        MyWidgetProvider.refreshAll(context)
     }
 
     LaunchedEffect(Unit) { refresh() }
+    LaunchedEffect(statType) { stats = db.getStats(statType) }
 
     val excelPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let {
@@ -222,11 +230,25 @@ fun AppScreen(db: DatabaseHelper) {
                             listOf("周", "月", "季度", "年").forEach { t ->
                                 FilterChip(
                                     selected = statType == t,
-                                    onClick = { statType = t; refresh() },
+                                    onClick = { statType = t },
                                     label = { Text(t) },
                                     modifier = Modifier.padding(end = 8.dp)
                                 )
                             }
+                        }
+                        Spacer(Modifier.height(12.dp))
+
+                        // 柱状图：只在"周"或"月"时显示
+                        if (statType == "周" || statType == "月") {
+                            Text(
+                                if (statType == "周") "最近 12 周充电金额" else "最近 12 个月充电金额",
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            BarChartCard(stats = stats, maxBars = 12)
+                            Spacer(Modifier.height(12.dp))
+                            Divider()
+                            Spacer(Modifier.height(8.dp))
                         }
                     }
                     LazyColumn {
@@ -257,8 +279,6 @@ fun AppScreen(db: DatabaseHelper) {
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        // 密码框：保留 Password 类型 + PasswordVisualTransformation
-                        // 去掉眼睛图标，让 MIUI 触发安全键盘
                         OutlinedTextField(
                             value = webdavPass,
                             onValueChange = { webdavPass = it },
@@ -272,7 +292,6 @@ fun AppScreen(db: DatabaseHelper) {
                         )
                         Spacer(Modifier.height(8.dp))
                         Button(onClick = {
-                            // 保存到 SharedPreferences，下次打开 App 会自动读取
                             WebDavPrefs.save(context, webdavUrl, webdavUser, webdavPass)
                             WebDavHelper.configure(webdavUrl, webdavUser, webdavPass)
                             statusMsg = "已保存配置"
@@ -322,5 +341,112 @@ fun AppScreen(db: DatabaseHelper) {
                 }
             }
         }
+    }
+}
+
+/**
+ * 柱状图卡片：取 stats 最后 maxBars 项（按时间倒序取最近），从左到右显示
+ */
+@Composable
+fun BarChartCard(stats: List<StatItem>, maxBars: Int = 12) {
+    // stats 是按 period 倒序（最新的在前），取前 maxBars 条再反转，让最新的在右边
+    val shown = stats.take(maxBars).reversed()
+    if (shown.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(200.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("暂无数据", color = Color.Gray)
+        }
+        return
+    }
+    val maxValue = shown.maxOf { it.total }.coerceAtLeast(1.0)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(220.dp)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val bottomPadding = 40f
+            val topPadding = 20f
+            val chartH = h - bottomPadding - topPadding
+            val barCount = shown.size
+            val slotW = w / barCount
+            val barW = slotW * 0.55f
+
+            // 画基线
+            drawLine(
+                color = Color.LightGray,
+                start = Offset(0f, h - bottomPadding),
+                end = Offset(w, h - bottomPadding),
+                strokeWidth = 2f
+            )
+
+            // 画每个柱子
+            for (i in shown.indices) {
+                val item = shown[i]
+                val ratio = (item.total / maxValue).toFloat()
+                val barH = chartH * ratio
+                val left = i * slotW + (slotW - barW) / 2
+                val top = h - bottomPadding - barH
+                drawRect(
+                    color = Color(0xFF2196F3),
+                    topLeft = Offset(left, top),
+                    size = androidx.compose.ui.geometry.Size(barW, barH)
+                )
+
+                // 金额数字（小字）
+                val amountText = "%.1f".format(item.total)
+                val textPaint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.BLACK
+                    textSize = 22f
+                    textAlign = android.graphics.Paint.Align.CENTER
+                    isAntiAlias = true
+                }
+                drawContext.canvas.nativeCanvas.drawText(
+                    amountText,
+                    left + barW / 2,
+                    top - 6f,
+                    textPaint
+                )
+
+                // 横轴标签（周期名，例如 "01月"、"W01"）
+                val label = simplifyPeriod(item.period)
+                val labelPaint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.DKGRAY
+                    textSize = 20f
+                    textAlign = android.graphics.Paint.Align.CENTER
+                    isAntiAlias = true
+                }
+                drawContext.canvas.nativeCanvas.drawText(
+                    label,
+                    left + barW / 2,
+                    h - bottomPadding + 24f,
+                    labelPaint
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 把 "2025年01月" 简化成 "01月"；把 "2025年第01周" 简化成 "W01"
+ */
+private fun simplifyPeriod(period: String): String {
+    return when {
+        period.contains("月") -> {
+            val idx = period.indexOf("年")
+            if (idx >= 0) period.substring(idx + 1) else period
+        }
+        period.contains("周") -> {
+            val idx = period.indexOf("第")
+            if (idx >= 0) "W" + period.substring(idx + 1, period.length - 1) else period
+        }
+        else -> period
     }
 }
