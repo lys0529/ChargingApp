@@ -71,7 +71,10 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null
 
     fun getAll(): List<Record> {
         val list = mutableListOf<Record>()
-        val cursor = readableDatabase.rawQuery("SELECT id, date, amount FROM $TABLE ORDER BY date DESC", null)
+        val cursor = readableDatabase.rawQuery(
+            "SELECT id, date, amount FROM $TABLE ORDER BY date DESC",
+            null
+        )
         while (cursor.moveToNext()) {
             list.add(Record(cursor.getLong(0), cursor.getString(1), cursor.getDouble(2)))
         }
@@ -89,9 +92,13 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null
                 when (period) {
                     "周" -> {
                         val week = cal.get(Calendar.WEEK_OF_YEAR)
-                        "${cal.get(Calendar.YEAR)}年第${week}周"
+                        // 补零，保证字符串排序正确
+                        "${cal.get(Calendar.YEAR)}年第${week.toString().padStart(2, '0')}周"
                     }
-                    "月" -> "${cal.get(Calendar.YEAR)}年${cal.get(Calendar.MONTH) + 1}月"
+                    "月" -> {
+                        val m = cal.get(Calendar.MONTH) + 1
+                        "${cal.get(Calendar.YEAR)}年${m.toString().padStart(2, '0')}月"
+                    }
                     "季度" -> {
                         val q = (cal.get(Calendar.MONTH) / 3) + 1
                         "${cal.get(Calendar.YEAR)}年第${q}季度"
@@ -99,7 +106,9 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null
                     "年" -> "${cal.get(Calendar.YEAR)}年"
                     else -> "未知"
                 }
-            } catch (e: Exception) { "未知" }
+            } catch (e: Exception) {
+                "未知"
+            }
         }
         return grouped.map { (k, v) ->
             StatItem(k, v.size, v.sumOf { it.amount })
@@ -107,17 +116,13 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null
     }
 
     fun exportTo(file: File) {
-        val db = readableDatabase
-        val out = file.outputStream()
-        // 简化: 导出为 TSV（制表符分隔）文件，名为 .db，实际是文本
         val all = getAll()
-        out.bufferedWriter().use { w ->
+        file.outputStream().bufferedWriter().use { w ->
             w.write("id\tdate\tamount\n")
             for (r in all) {
                 w.write("${r.id}\t${r.date}\t${r.amount}\n")
             }
         }
-        out.close()
     }
 
     fun importFrom(file: File) {
