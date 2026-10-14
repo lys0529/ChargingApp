@@ -12,31 +12,32 @@ import java.util.Locale
 object ExcelHelper {
     private const val TAG = "ExcelHelper"
 
+    // 你的表格: A列=序号, B列=日期, C列=金额
+    private const val COL_DATE = 1
+    private const val COL_AMOUNT = 2
+
     fun importFromExcel(context: Context, uri: Uri): List<Pair<String, Double>> {
         val records = mutableListOf<Pair<String, Double>>()
         try {
             context.contentResolver.openInputStream(uri)?.use { input ->
                 val wb = WorkbookFactory.create(input)
+                val evaluator = wb.creationHelper.createFormulaEvaluator()
                 val sheet = wb.getSheetAt(0)
                 Log.d(TAG, "lastRowNum=${sheet.lastRowNum}")
 
                 for (i in 0..sheet.lastRowNum) {
-                    val row = sheet.getRow(i)
-                    if (row == null) {
-                        Log.d(TAG, "Row $i: null")
-                        continue
-                    }
-                    val dateCell = row.getCell(0)
-                    val amountCell = row.getCell(1)
-                    if (dateCell == null || amountCell == null) {
-                        Log.d(TAG, "Row $i: dateCell or amountCell null")
-                        continue
-                    }
+                    val row = sheet.getRow(i) ?: continue
+                    val dateCell = row.getCell(COL_DATE) ?: continue
+                    val amountCell = row.getCell(COL_AMOUNT) ?: continue
 
-                    val dateStr = parseDateCell(dateCell)
-                    val amount = parseAmountCell(amountCell)
+                    // 先算公式
+                    val evalDate = if (dateCell.cellType == CellType.FORMULA) evaluator.evaluate(dateCell) else dateCell
+                    val evalAmount = if (amountCell.cellType == CellType.FORMULA) evaluator.evaluate(amountCell) else amountCell
 
-                    Log.d(TAG, "Row $i: type=${dateCell.cellType} parsed='$dateStr' amount=$amount")
+                    val dateStr = parseDateCell(evalDate)
+                    val amount = parseAmountCell(evalAmount)
+
+                    Log.d(TAG, "Row $i: rawDateType=${dateCell.cellType} date='$dateStr' amount=$amount")
 
                     if (dateStr.isNullOrBlank()) continue
                     if (!looksLikeDate(dateStr)) continue
@@ -52,36 +53,29 @@ object ExcelHelper {
         return records
     }
 
-    private fun parseDateCell(cell: org.apache.poi.ss.usermodel.Cell): String? {
+    private fun parseDateCell(cell: org.apache.poi.ss.usermodel.Cell?): String? {
+        if (cell == null) return null
         return when (cell.cellType) {
             CellType.STRING -> normalizeDate(cell.stringCellValue)
             CellType.NUMERIC -> {
-                if (DateUtil.isCellDateFormatted(cell)) {
-                    SimpleDateFormat("yyyy.MM.dd", Locale.getDefault())
-                        .format(cell.dateCellValue)
-                } else {
-                    val num = cell.numericCellValue
-                    val asLong = num.toLong()
-                    val s = asLong.toString()
-                    if (s.length == 8) {
+                val num = cell.numericCellValue
+                when {
+                    // 情况1: 是 Excel 日期格式
+                    DateUtil.isCellDateFormatted(cell) -> {
+                        SimpleDateFormat("yyyy.MM.dd", Locale.getDefault())
+                            .format(cell.dateCellValue)
+                    }
+                    // 情况2: 8位整数 20250325
+                    num >= 19000101 && num <= 21001231 -> {
+                        val s = num.toLong().toString()
                         "${s.substring(0, 4)}.${s.substring(4, 6)}.${s.substring(6, 8)}"
-                    } else if (num > 20000 && num < 60000) {
+                    }
+                    // 情况3: Excel 日期序列号 (1900-01-01=1)
+                    num > 20000 && num < 80000 -> {
                         val date = DateUtil.getJavaDate(num)
                         SimpleDateFormat("yyyy.MM.dd", Locale.getDefault()).format(date)
-                    } else null
-                }
-            }
-            CellType.FORMULA -> {
-                try {
-                    normalizeDate(cell.stringCellValue)
-                } catch (e: Exception) {
-                    try {
-                        val d = cell.numericCellValue
-                        val date = DateUtil.getJavaDate(d)
-                        SimpleDateFormat("yyyy.MM.dd", Locale.getDefault()).format(date)
-                    } catch (e2: Exception) {
-                        null
                     }
+                    else -> null
                 }
             }
             else -> null
@@ -99,17 +93,15 @@ object ExcelHelper {
         return "$y.$mo.$d"
     }
 
-    private fun parseAmountCell(cell: org.apache.poi.ss.usermodel.Cell): Double {
+    private fun parseAmountCell(cell: org.apache.poi.ss.usermodel.Cell?): Double {
+        if (cell == null) return 0.0
         return when (cell.cellType) {
             CellType.NUMERIC -> cell.numericCellValue
-            CellType.STRING -> {
-                cell.stringCellValue
-                    .replace("¥", "")
-                    .replace(",", "")
-                    .trim()
-                    .toDoubleOrNull() ?: 0.0
-            }
-            CellType.FORMULA -> try { cell.numericCellValue } catch (e: Exception) { 0.0 }
+            CellType.STRING -> cell.stringCellValue
+                .replace("¥", "")
+                .replace(",", "")
+                .trim()
+                .toDoubleOrNull() ?: 0.0
             else -> 0.0
         }
     }
