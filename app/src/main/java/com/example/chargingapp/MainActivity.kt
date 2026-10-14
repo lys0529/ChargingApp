@@ -10,13 +10,19 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -56,6 +62,7 @@ fun AppScreen(db: DatabaseHelper) {
     var webdavUrl by remember { mutableStateOf("") }
     var webdavUser by remember { mutableStateOf("") }
     var webdavPass by remember { mutableStateOf("") }
+    var webdavPassVisible by remember { mutableStateOf(false) }
     var statusMsg by remember { mutableStateOf("") }
 
     // 输入状态
@@ -63,7 +70,6 @@ fun AppScreen(db: DatabaseHelper) {
     var inputDate by remember { mutableStateOf(dateFmt.format(Date())) }
     var inputAmount by remember { mutableStateOf("") }
 
-    // 日期选择器对话框
     fun showDatePicker() {
         val cal = Calendar.getInstance()
         try {
@@ -92,7 +98,6 @@ fun AppScreen(db: DatabaseHelper) {
 
     LaunchedEffect(Unit) { refresh() }
 
-    // Excel 选择器
     val excelPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let {
             scope.launch(Dispatchers.IO) {
@@ -100,8 +105,8 @@ fun AppScreen(db: DatabaseHelper) {
                 if (list.isNotEmpty()) db.insertBatch(list)
                 withContext(Dispatchers.Main) {
                     refresh()
-                    statusMsg = "导入成功: ${list.size} 条"
-                    if (WebDavHelper.isConfigured()) {
+                    statusMsg = if (list.isEmpty()) "导入失败：未读取到数据" else "导入成功: ${list.size} 条"
+                    if (WebDavHelper.isConfigured() && list.isNotEmpty()) {
                         val f = File(context.cacheDir, "backup.db")
                         db.exportTo(f)
                         WebDavHelper.upload(f, "charging_backup.db")
@@ -124,7 +129,6 @@ fun AppScreen(db: DatabaseHelper) {
             when (selectedTab) {
                 0 -> {
                     Column(Modifier.padding(12.dp)) {
-                        // 日期选择按钮 + 金额输入
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             OutlinedButton(
                                 onClick = { showDatePicker() },
@@ -139,6 +143,11 @@ fun AppScreen(db: DatabaseHelper) {
                                 value = inputAmount,
                                 onValueChange = { inputAmount = it },
                                 label = { Text("金额") },
+                                // 关键：调用安全键盘（数字/密码键盘，无联想无记忆）
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.NumberPassword
+                                ),
+                                singleLine = true,
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -205,9 +214,41 @@ fun AppScreen(db: DatabaseHelper) {
                     Column(Modifier.padding(16.dp)) {
                         Text("WebDAV 配置", style = MaterialTheme.typography.titleLarge)
                         Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(value = webdavUrl, onValueChange = { webdavUrl = it }, label = { Text("服务器地址 (https://...)") }, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = webdavUser, onValueChange = { webdavUser = it }, label = { Text("用户名") }, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = webdavPass, onValueChange = { webdavPass = it }, label = { Text("密码") }, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(
+                            value = webdavUrl,
+                            onValueChange = { webdavUrl = it },
+                            label = { Text("服务器地址 (https://...)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = webdavUser,
+                            onValueChange = { webdavUser = it },
+                            label = { Text("用户名") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = webdavPass,
+                            onValueChange = { webdavPass = it },
+                            label = { Text("密码") },
+                            singleLine = true,
+                            // 关键：密码隐藏/显示切换
+                            visualTransformation = if (webdavPassVisible) {
+                                VisualTransformation.None
+                            } else {
+                                PasswordVisualTransformation()
+                            },
+                            trailingIcon = {
+                                IconButton(onClick = { webdavPassVisible = !webdavPassVisible }) {
+                                    Icon(
+                                        imageVector = if (webdavPassVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        contentDescription = if (webdavPassVisible) "隐藏密码" else "显示密码"
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
                         Spacer(Modifier.height(8.dp))
                         Button(onClick = {
                             WebDavHelper.configure(webdavUrl, webdavUser, webdavPass)
