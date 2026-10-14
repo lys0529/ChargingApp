@@ -23,13 +23,12 @@ object WebDavHelper {
         } catch (e: Exception) { false }
     }
 
+    // 上传：直接传 File 给 sardine
     fun upload(localFile: File, remoteName: String): Boolean {
         return try {
             val s = sardine ?: return false
             val remote = "$baseUrl/$remoteName"
-            localFile.inputStream().use { input ->
-                s.put(remote, input, "application/octet-stream")
-            }
+            s.put(remote, localFile, "application/octet-stream")
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -37,15 +36,17 @@ object WebDavHelper {
         }
     }
 
+    // 下载：把远端内容写入本地 File
     fun download(remoteName: String, localFile: File): Boolean {
         return try {
             val s = sardine ?: return false
             val remote = "$baseUrl/$remoteName"
-            val input = s.get(remote)
-            localFile.outputStream().use { output ->
-                input.copyTo(output)
-            }
+            val bytes = s.get(remote).readBytes()
+            localFile.writeBytes(bytes)
             true
-        } catch (e: Exception) { false }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
     }
 }
