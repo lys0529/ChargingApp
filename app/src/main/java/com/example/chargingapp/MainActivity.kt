@@ -1,5 +1,6 @@
 package com.example.chargingapp
 
+import android.app.DatePickerDialog
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -9,6 +10,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,6 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -54,9 +58,32 @@ fun AppScreen(db: DatabaseHelper) {
     var webdavPass by remember { mutableStateOf("") }
     var statusMsg by remember { mutableStateOf("") }
 
-    // 添加记录
-    var inputDate by remember { mutableStateOf(SimpleDateFormat("yyyy.MM.dd", Locale.getDefault()).format(Date())) }
+    // 输入状态
+    val dateFmt = SimpleDateFormat("yyyy.MM.dd", Locale.getDefault())
+    var inputDate by remember { mutableStateOf(dateFmt.format(Date())) }
     var inputAmount by remember { mutableStateOf("") }
+
+    // 日期选择器对话框
+    fun showDatePicker() {
+        val cal = Calendar.getInstance()
+        try {
+            cal.time = dateFmt.parse(inputDate) ?: Date()
+        } catch (_: Exception) { }
+        DatePickerDialog(
+            context,
+            { _, year, month, day ->
+                val c = Calendar.getInstance().apply {
+                    set(Calendar.YEAR, year)
+                    set(Calendar.MONTH, month)
+                    set(Calendar.DAY_OF_MONTH, day)
+                }
+                inputDate = dateFmt.format(c.time)
+            },
+            cal.get(Calendar.YEAR),
+            cal.get(Calendar.MONTH),
+            cal.get(Calendar.DAY_OF_MONTH)
+        ).show()
+    }
 
     fun refresh() {
         records = db.getAll()
@@ -74,7 +101,6 @@ fun AppScreen(db: DatabaseHelper) {
                 withContext(Dispatchers.Main) {
                     refresh()
                     statusMsg = "导入成功: ${list.size} 条"
-                    // 尝试同步 WebDAV
                     if (WebDavHelper.isConfigured()) {
                         val f = File(context.cacheDir, "backup.db")
                         db.exportTo(f)
@@ -98,13 +124,16 @@ fun AppScreen(db: DatabaseHelper) {
             when (selectedTab) {
                 0 -> {
                     Column(Modifier.padding(12.dp)) {
+                        // 日期选择按钮 + 金额输入
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(
-                                value = inputDate,
-                                onValueChange = { inputDate = it },
-                                label = { Text("日期") },
+                            OutlinedButton(
+                                onClick = { showDatePicker() },
                                 modifier = Modifier.weight(1f)
-                            )
+                            ) {
+                                Icon(Icons.Default.DateRange, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text(inputDate)
+                            }
                             Spacer(Modifier.width(8.dp))
                             OutlinedTextField(
                                 value = inputAmount,
@@ -120,7 +149,6 @@ fun AppScreen(db: DatabaseHelper) {
                                     db.insert(inputDate, amt)
                                     inputAmount = ""
                                     refresh()
-                                    // 后台同步
                                     if (WebDavHelper.isConfigured()) {
                                         scope.launch(Dispatchers.IO) {
                                             val f = File(context.cacheDir, "backup.db")
