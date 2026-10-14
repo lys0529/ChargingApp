@@ -1,6 +1,7 @@
 package com.example.chargingapp
 
 import android.app.DatePickerDialog
+import android.content.Context
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -13,8 +14,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -32,6 +30,31 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+
+// ---- WebDAV 配置持久化 ----
+object WebDavPrefs {
+    private const val NAME = "webdav_prefs"
+    private const val KEY_URL = "url"
+    private const val KEY_USER = "user"
+    private const val KEY_PASS = "pass"
+
+    fun load(context: Context): Triple<String, String, String> {
+        val sp = context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+        return Triple(
+            sp.getString(KEY_URL, "") ?: "",
+            sp.getString(KEY_USER, "") ?: "",
+            sp.getString(KEY_PASS, "") ?: ""
+        )
+    }
+
+    fun save(context: Context, url: String, user: String, pass: String) {
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+            .putString(KEY_URL, url)
+            .putString(KEY_USER, user)
+            .putString(KEY_PASS, pass)
+            .apply()
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,12 +81,19 @@ fun AppScreen(db: DatabaseHelper) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var statType by remember { mutableStateOf("月") }
 
-    // WebDAV 配置
-    var webdavUrl by remember { mutableStateOf("") }
-    var webdavUser by remember { mutableStateOf("") }
-    var webdavPass by remember { mutableStateOf("") }
-    var webdavPassVisible by remember { mutableStateOf(false) }
+    // ---- WebDAV 配置：从 SharedPreferences 读回 ----
+    val saved = remember { WebDavPrefs.load(context) }
+    var webdavUrl by remember { mutableStateOf(saved.first) }
+    var webdavUser by remember { mutableStateOf(saved.second) }
+    var webdavPass by remember { mutableStateOf(saved.third) }
     var statusMsg by remember { mutableStateOf("") }
+
+    // App 启动时自动把已保存的配置注入 WebDavHelper
+    LaunchedEffect(Unit) {
+        if (webdavUrl.isNotBlank()) {
+            WebDavHelper.configure(webdavUrl, webdavUser, webdavPass)
+        }
+    }
 
     // 输入状态
     val dateFmt = SimpleDateFormat("yyyy.MM.dd", Locale.getDefault())
@@ -143,7 +173,6 @@ fun AppScreen(db: DatabaseHelper) {
                                 value = inputAmount,
                                 onValueChange = { inputAmount = it },
                                 label = { Text("金额") },
-                                // 关键：调用安全键盘（数字/密码键盘，无联想无记忆）
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.NumberPassword
                                 ),
@@ -228,31 +257,25 @@ fun AppScreen(db: DatabaseHelper) {
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
+                        // 密码框：保留 Password 类型 + PasswordVisualTransformation
+                        // 去掉眼睛图标，让 MIUI 触发安全键盘
                         OutlinedTextField(
                             value = webdavPass,
                             onValueChange = { webdavPass = it },
                             label = { Text("密码") },
                             singleLine = true,
-                            // 关键：密码隐藏/显示切换
-                            visualTransformation = if (webdavPassVisible) {
-                                VisualTransformation.None
-                            } else {
-                                PasswordVisualTransformation()
-                            },
-                            trailingIcon = {
-                                IconButton(onClick = { webdavPassVisible = !webdavPassVisible }) {
-                                    Icon(
-                                        imageVector = if (webdavPassVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                        contentDescription = if (webdavPassVisible) "隐藏密码" else "显示密码"
-                                    )
-                                }
-                            },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Password
+                            ),
+                            visualTransformation = PasswordVisualTransformation(),
                             modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(Modifier.height(8.dp))
                         Button(onClick = {
+                            // 保存到 SharedPreferences，下次打开 App 会自动读取
+                            WebDavPrefs.save(context, webdavUrl, webdavUser, webdavPass)
                             WebDavHelper.configure(webdavUrl, webdavUser, webdavPass)
-                            statusMsg = "已配置"
+                            statusMsg = "已保存配置"
                         }) { Text("保存配置") }
 
                         Spacer(Modifier.height(8.dp))
