@@ -3,8 +3,11 @@ package com.example.chargingapp
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import org.apache.poi.ss.usermodel.Cell
 import org.apache.poi.ss.usermodel.CellType
+import org.apache.poi.ss.usermodel.CellValue
 import org.apache.poi.ss.usermodel.DateUtil
+import org.apache.poi.ss.usermodel.FormulaEvaluator
 import org.apache.poi.ss.usermodel.WorkbookFactory
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -30,12 +33,8 @@ object ExcelHelper {
                     val dateCell = row.getCell(COL_DATE) ?: continue
                     val amountCell = row.getCell(COL_AMOUNT) ?: continue
 
-                    // 先算公式
-                    val evalDate = if (dateCell.cellType == CellType.FORMULA) evaluator.evaluate(dateCell) else dateCell
-                    val evalAmount = if (amountCell.cellType == CellType.FORMULA) evaluator.evaluate(amountCell) else amountCell
-
-                    val dateStr = parseDateCell(evalDate)
-                    val amount = parseAmountCell(evalAmount)
+                    val dateStr = parseDateCell(dateCell, evaluator)
+                    val amount = parseAmountCell(amountCell, evaluator)
 
                     Log.d(TAG, "Row $i: rawDateType=${dateCell.cellType} date='$dateStr' amount=$amount")
 
@@ -53,30 +52,47 @@ object ExcelHelper {
         return records
     }
 
-    private fun parseDateCell(cell: org.apache.poi.ss.usermodel.Cell?): String? {
-        if (cell == null) return null
-        return when (cell.cellType) {
+    private fun parseDateCell(cell: Cell, evaluator: FormulaEvaluator): String? {
+        val type = cell.cellType
+        return when (type) {
             CellType.STRING -> normalizeDate(cell.stringCellValue)
-            CellType.NUMERIC -> {
-                val num = cell.numericCellValue
-                when {
-                    // 情况1: 是 Excel 日期格式
-                    DateUtil.isCellDateFormatted(cell) -> {
-                        SimpleDateFormat("yyyy.MM.dd", Locale.getDefault())
-                            .format(cell.dateCellValue)
-                    }
-                    // 情况2: 8位整数 20250325
-                    num >= 19000101 && num <= 21001231 -> {
-                        val s = num.toLong().toString()
-                        "${s.substring(0, 4)}.${s.substring(4, 6)}.${s.substring(6, 8)}"
-                    }
-                    // 情况3: Excel 日期序列号 (1900-01-01=1)
-                    num > 20000 && num < 80000 -> {
-                        val date = DateUtil.getJavaDate(num)
-                        SimpleDateFormat("yyyy.MM.dd", Locale.getDefault()).format(date)
+            CellType.NUMERIC -> parseNumericDate(cell)
+            CellType.FORMULA -> {
+                // 用 evaluator 求出公式结果
+                val value: CellValue = evaluator.evaluate(cell)
+                if (value == null) return null
+                when (value.cellType) {
+                    CellType.STRING -> normalizeDate(value.stringValue)
+                    CellType.NUMERIC -> {
+                        // CellValue 的数字，尝试按 8 位整数和序列号解释
+                        parseNumericValue(value.numberValue)
                     }
                     else -> null
                 }
+            }
+            else -> null
+        }
+    }
+
+    private fun parseNumericDate(cell: Cell): String? {
+        return if (DateUtil.isCellDateFormatted(cell)) {
+            SimpleDateFormat("yyyy.MM.dd", Locale.getDefault()).format(cell.dateCellValue)
+        } else {
+            parseNumericValue(cell.numericCellValue)
+        }
+    }
+
+    private fun parseNumericValue(num: Double): String? {
+        return when {
+            // 8位整数 20250325
+            num >= 19000101 && num <= 21001231 -> {
+                val s = num.toLong().toString()
+                "${s.substring(0, 4)}.${s.substring(4, 6)}.${s.substring(6, 8)}"
+            }
+            // Excel 日期序列号
+            num > 20000 && num < 80000 -> {
+                val date = DateUtil.getJavaDate(num)
+                SimpleDateFormat("yyyy.MM.dd", Locale.getDefault()).format(date)
             }
             else -> null
         }
@@ -93,8 +109,7 @@ object ExcelHelper {
         return "$y.$mo.$d"
     }
 
-    private fun parseAmountCell(cell: org.apache.poi.ss.usermodel.Cell?): Double {
-        if (cell == null) return 0.0
+    private fun parseAmountCell(cell: Cell, evaluator: FormulaEvaluator): Double {
         return when (cell.cellType) {
             CellType.NUMERIC -> cell.numericCellValue
             CellType.STRING -> cell.stringCellValue
@@ -102,6 +117,15 @@ object ExcelHelper {
                 .replace(",", "")
                 .trim()
                 .toDoubleOrNull() ?: 0.0
+            CellType.FORMULA -> {
+                val value: CellValue = evaluator.evaluate(cell)
+                if (value == null) 0.0
+                else when (value.cellType) {
+                    CellType.NUMERIC -> value.numberValue
+                    CellType.STRING -> value.stringValue.toDoubleOrNull() ?: 0.0
+                    else -> 0.0
+                }
+            }
             else -> 0.0
         }
     }
