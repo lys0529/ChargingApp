@@ -1,9 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
     <application
         android:allowBackup="true"
         android:label="充电记账"
@@ -19,7 +16,6 @@
             </intent-filter>
         </activity>
 
-        <!-- 新增：桌面小部件 -->
         <receiver
             android:name=".MyWidgetProvider"
             android:exported="true">
