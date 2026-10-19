@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalFoundationApi::class)
+@file:OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 
 package com.example.chargingapp
 
@@ -12,12 +12,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.*
@@ -25,13 +27,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -82,7 +85,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppScreen(db: DatabaseHelper) {
     val context = LocalContext.current
@@ -117,6 +119,9 @@ fun AppScreen(db: DatabaseHelper) {
     val dateFmt = SimpleDateFormat("yyyy.MM.dd", Locale.getDefault())
     var inputDate by remember { mutableStateOf(dateFmt.format(Date())) }
     var inputAmount by remember { mutableStateOf("") }
+
+    // 自定义键盘弹窗状态
+    var showKeyboard by remember { mutableStateOf(false) }
 
     fun showDatePicker() {
         val cal = Calendar.getInstance()
@@ -173,7 +178,7 @@ fun AppScreen(db: DatabaseHelper) {
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
 
-            // 主 TabRow，和下方 HorizontalPager 联动
+            // 主 TabRow
             TabRow(selectedTabIndex = mainPagerState.currentPage) {
                 mainTabs.forEachIndexed { i, t ->
                     Tab(
@@ -186,7 +191,7 @@ fun AppScreen(db: DatabaseHelper) {
                 }
             }
 
-            // 三大页面，支持左右滑动切换
+            // 三大页面
             HorizontalPager(
                 state = mainPagerState,
                 modifier = Modifier.fillMaxSize()
@@ -206,15 +211,17 @@ fun AppScreen(db: DatabaseHelper) {
                                         Text(inputDate)
                                     }
                                     Spacer(Modifier.width(8.dp))
+                                    
+                                    // 金额框：点击弹出自定义键盘
                                     OutlinedTextField(
                                         value = inputAmount,
-                                        onValueChange = { inputAmount = it },
+                                        onValueChange = { }, // 禁用系统键盘输入
                                         label = { Text("金额") },
-                                        keyboardOptions = KeyboardOptions(
-                                            keyboardType = KeyboardType.NumberPassword
-                                        ),
+                                        readOnly = true,
                                         singleLine = true,
-                                        modifier = Modifier.weight(1f)
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { showKeyboard = true }
                                     )
                                 }
                                 Row(Modifier.padding(top = 8.dp)) {
@@ -258,7 +265,6 @@ fun AppScreen(db: DatabaseHelper) {
                     // ============ 页面 2：统计 ============
                     1 -> {
                         Column(Modifier.fillMaxSize()) {
-                            // 4 个统计类型 Tab，和下方 HorizontalPager 联动
                             TabRow(selectedTabIndex = statPagerState.currentPage) {
                                 statTabs.forEachIndexed { i, t ->
                                     Tab(
@@ -271,7 +277,6 @@ fun AppScreen(db: DatabaseHelper) {
                                 }
                             }
 
-                            // 周 / 月 / 季度 / 年 四个页面，支持左右滑动切换
                             HorizontalPager(
                                 state = statPagerState,
                                 modifier = Modifier.fillMaxSize()
@@ -296,7 +301,6 @@ fun AppScreen(db: DatabaseHelper) {
                                     Divider()
                                     Spacer(Modifier.height(8.dp))
 
-                                    // 下方列表
                                     LazyColumn {
                                         items(stats) { s ->
                                             ListItem(
@@ -339,9 +343,7 @@ fun AppScreen(db: DatabaseHelper) {
                                 onValueChange = { webdavPass = it },
                                 label = { Text("密码") },
                                 singleLine = true,
-                                keyboardOptions = KeyboardOptions(
-                                    keyboardType = KeyboardType.Password
-                                ),
+                                // 密码框保留系统的密码遮蔽，但不弹出系统键盘，支持正常输入
                                 visualTransformation = PasswordVisualTransformation(),
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -393,7 +395,6 @@ fun AppScreen(db: DatabaseHelper) {
                                 Text(statusMsg)
                             }
 
-                            // 页脚署名（推到底部居中，50% 透明度）
                             Spacer(Modifier.weight(1f))
                             Box(
                                 modifier = Modifier.fillMaxWidth(),
@@ -413,13 +414,160 @@ fun AppScreen(db: DatabaseHelper) {
             }
         }
     }
+
+    // ---- 自定义数字键盘弹窗 ----
+    if (showKeyboard) {
+        ModalBottomSheet(
+            onDismissRequest = { showKeyboard = false },
+            dragHandle = { BottomSheetDefaults.DragHandle() }
+        ) {
+            CustomNumberKeyboard(
+                initialValue = inputAmount,
+                onConfirm = { value ->
+                    inputAmount = value
+                    showKeyboard = false
+                }
+            )
+        }
+    }
 }
 
 /**
- * 柱状图卡片：根据 type 自动决定显示多少个柱子
- * - 周、月：最近 12 个
- * - 季度：最近 8 个
- * - 年：全部
+ * 自定义数字键盘：0-9, ., 删除, 清空, 确认
+ */
+@Composable
+fun CustomNumberKeyboard(
+    initialValue: String,
+    onConfirm: (String) -> Unit
+) {
+    var input by remember { mutableStateOf(initialValue) }
+
+    // 点击按键的逻辑
+    fun handleKey(key: String) {
+        when (key) {
+            "DEL" -> {
+                if (input.isNotEmpty()) {
+                    input = input.dropLast(1)
+                }
+            }
+            "CLR" -> input = ""
+            "." -> {
+                if (!input.contains(".")) {
+                    input = if (input.isEmpty()) "0." else "$input."
+                }
+            }
+            else -> {
+                // 防止开头输入多个0
+                if (input == "0") {
+                    input = key
+                } else {
+                    // 限制最长输入（防止撑爆界面）
+                    if (input.length < 10) {
+                        input += key
+                    }
+                }
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+            .navigationBarsPadding()
+    ) {
+        // 展示当前输入
+        Text(
+            text = if (input.isEmpty()) "0" else input,
+            fontSize = 36.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.End,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp, end = 8.dp)
+        )
+
+        // 第一排：1 2 3
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            KeyButton("1", Modifier.weight(1f)) { handleKey("1") }
+            KeyButton("2", Modifier.weight(1f)) { handleKey("2") }
+            KeyButton("3", Modifier.weight(1f)) { handleKey("3") }
+        }
+        Spacer(Modifier.height(8.dp))
+
+        // 第二排：4 5 6
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            KeyButton("4", Modifier.weight(1f)) { handleKey("4") }
+            KeyButton("5", Modifier.weight(1f)) { handleKey("5") }
+            KeyButton("6", Modifier.weight(1f)) { handleKey("6") }
+        }
+        Spacer(Modifier.height(8.dp))
+
+        // 第三排：7 8 9
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            KeyButton("7", Modifier.weight(1f)) { handleKey("7") }
+            KeyButton("8", Modifier.weight(1f)) { handleKey("8") }
+            KeyButton("9", Modifier.weight(1f)) { handleKey("9") }
+        }
+        Spacer(Modifier.height(8.dp))
+
+        // 第四排：. 0 DEL
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            KeyButton(".", Modifier.weight(1f)) { handleKey(".") }
+            KeyButton("0", Modifier.weight(1f)) { handleKey("0") }
+            KeyButton("DEL", Modifier.weight(1f), isAction = true) { handleKey("DEL") }
+        }
+        Spacer(Modifier.height(8.dp))
+
+        // 第五排：清空 确认
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            KeyButton("清空", Modifier.weight(1f), isAction = true) { handleKey("CLR") }
+            KeyButton("确认", Modifier.weight(2f), isPrimary = true) {
+                onConfirm(input)
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+    }
+}
+
+@Composable
+fun KeyButton(
+    text: String,
+    modifier: Modifier = Modifier,
+    isAction: Boolean = false,
+    isPrimary: Boolean = false,
+    onClick: () -> Unit
+) {
+    val bgColor = when {
+        isPrimary -> MaterialTheme.colorScheme.primary
+        isAction -> MaterialTheme.colorScheme.surfaceVariant
+        else -> MaterialTheme.colorScheme.surface
+    }
+    val textColor = when {
+        isPrimary -> MaterialTheme.colorScheme.onPrimary
+        isAction -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+
+    Box(
+        modifier = modifier
+            .height(56.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(bgColor)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            fontSize = if (text == "DEL" || text == "清空" || text == "确认") 16.sp else 24.sp,
+            color = textColor,
+            fontWeight = if (isPrimary) FontWeight.Bold else FontWeight.Normal
+        )
+    }
+}
+
+/**
+ * 柱状图卡片
  */
 @Composable
 fun BarChartCard(stats: List<StatItem>, type: String) {
@@ -429,7 +577,6 @@ fun BarChartCard(stats: List<StatItem>, type: String) {
         "年" -> Int.MAX_VALUE
         else -> 12
     }
-    // stats 是按 period 倒序（最新在前），取前 maxBars 条再反转，让最新的在右边
     val shown = stats.take(maxBars).reversed()
 
     if (shown.isEmpty()) {
@@ -461,7 +608,6 @@ fun BarChartCard(stats: List<StatItem>, type: String) {
             val slotW = w / barCount
             val barW = slotW * 0.55f
 
-            // 基线
             drawLine(
                 color = Color.LightGray,
                 start = Offset(0f, h - bottomPadding),
@@ -469,7 +615,6 @@ fun BarChartCard(stats: List<StatItem>, type: String) {
                 strokeWidth = 2f
             )
 
-            // 柱子
             for (i in shown.indices) {
                 val item = shown[i]
                 val ratio = (item.total / maxValue).toFloat()
@@ -483,7 +628,6 @@ fun BarChartCard(stats: List<StatItem>, type: String) {
                     size = androidx.compose.ui.geometry.Size(barW, barH)
                 )
 
-                // 金额文字
                 val amountText = "%.1f".format(item.total)
                 val textPaint = android.graphics.Paint().apply {
                     color = android.graphics.Color.BLACK
@@ -498,7 +642,6 @@ fun BarChartCard(stats: List<StatItem>, type: String) {
                     textPaint
                 )
 
-                // 周期标签
                 val label = simplifyPeriod(item.period)
                 val labelPaint = android.graphics.Paint().apply {
                     color = android.graphics.Color.DKGRAY
@@ -517,13 +660,6 @@ fun BarChartCard(stats: List<StatItem>, type: String) {
     }
 }
 
-/**
- * 把周期名简化，方便横轴显示：
- * - "2025年01月" → "01月"
- * - "2025年第03周" → "W03"
- * - "2025年第2季度" → "Q2"
- * - "2025年" → "2025"
- */
 private fun simplifyPeriod(period: String): String {
     return when {
         period.contains("月") -> {
