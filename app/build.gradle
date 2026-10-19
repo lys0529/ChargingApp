@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId "com.example.chargingapp"
-        minSdk 26          // ← 这里从 24 改为 26
+        minSdk 26
         targetSdk 34
         versionCode 1
         versionName "1.0"
@@ -58,16 +58,8 @@ dependencies {
     implementation 'androidx.compose.material3:material3'
     implementation 'androidx.compose.material:material-icons-extended'
 
-    // Excel
     implementation 'org.apache.poi:poi:5.2.3'
     implementation 'org.apache.poi:poi-ooxml:5.2.3'
-
-    // WebDAV
-    implementation 'com.github.thegrizzlylabs:sardine-android:0.9'
-
-    // 协程
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
-
-    // Desugaring
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
 }
