@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -202,7 +203,8 @@ fun AppScreen(db: DatabaseHelper) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     OutlinedButton(
                                         onClick = { showDatePicker() },
-                                        modifier = Modifier.weight(1f)
+                                        modifier = Modifier.weight(1f).height(56.dp),
+                                        shape = RoundedCornerShape(4.dp)
                                     ) {
                                         Icon(Icons.Default.DateRange, contentDescription = null)
                                         Spacer(Modifier.width(6.dp))
@@ -210,16 +212,26 @@ fun AppScreen(db: DatabaseHelper) {
                                     }
                                     Spacer(Modifier.width(8.dp))
                                     
-                                    OutlinedTextField(
-                                        value = inputAmount,
-                                        onValueChange = { },
-                                        label = { Text("金额") },
-                                        readOnly = true,
-                                        singleLine = true,
+                                    // 金额框：使用 Box 绘制假输入框，完美支持点击
+                                    Box(
                                         modifier = Modifier
                                             .weight(1f)
+                                            .height(56.dp)
+                                            .border(
+                                                width = 1.dp,
+                                                color = Color.Gray,
+                                                shape = RoundedCornerShape(4.dp)
+                                            )
                                             .clickable { showKeyboard = true }
-                                    )
+                                            .padding(horizontal = 16.dp),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        if (inputAmount.isEmpty()) {
+                                            Text("金额", color = Color.Gray, fontSize = 16.sp)
+                                        } else {
+                                            Text(inputAmount, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                        }
+                                    }
                                 }
                                 Row(Modifier.padding(top = 8.dp)) {
                                     Button(onClick = {
@@ -318,7 +330,6 @@ fun AppScreen(db: DatabaseHelper) {
 
                             Button(
                                 onClick = {
-                                    // 调用系统文件选择器，保存为 txt 文件
                                     val time = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
                                     backupLauncher.launch("充电记账_备份_$time.txt")
                                 },
